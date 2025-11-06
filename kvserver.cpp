@@ -1,5 +1,5 @@
 #include "httplib.h"
-#include "kvcache.cpp"
+#include "kvcache.h"
 #include <iostream>
 #include <sstream>
 #include <pqxx/pqxx>
