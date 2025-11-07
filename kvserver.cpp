@@ -22,12 +22,23 @@ void handle_create(const httplib::Request &req, httplib::Response &res) {
         pqxx::connection conn = get_connection();
         pqxx::work txn(conn);
 
-        txn.exec_params("INSERT INTO kv_data (key,value) VALUES ($1,$2)", key, value);
+        pqxx::result check = txn.exec_params("SELECT key FROM kv_data WHERE key=$1",key);
+        if(!check.empty()){
+            res.status = 409;
+            res.set_content("Key Already exists","text/plain");
+            return;
+        }
+
+        txn.exec_params("INSERT INTO kv_data (key,value) VALUES ($1,$2)",key,value);
         txn.commit();
 
-        cache.create_key(key, value);
-        res.set_content("Created Successfully", "text/plain");
+        cache.create_key(key,value);
+
+        res.status = 201;
+        res.set_content("Created Succesfully","text/plain");
+
     } catch (const std::exception &e) {
+        res.status = 500;
         res.set_content(std::string("Error: ") + e.what(), "text/plain");
     }
 }
@@ -40,12 +51,19 @@ void handle_delete(const httplib::Request &req, httplib::Response &res) {
         pqxx::connection conn = get_connection();
         pqxx::work txn(conn);
 
-        txn.exec_params("DELETE FROM kv_data WHERE key=$1", key);
+        pqxx::result r = txn.exec_params("DELETE FROM kv_data WHERE key=$1 RETURNING key", key);
+        if(r.empty()){
+            res.status = 404;
+            res.set_content("Key Not Found","text/plain");
+            return;
+        }
         txn.commit();
 
         cache.delete_key(key);
+        res.status = 200;
         res.set_content("Deleted Successfully", "text/plain");
     } catch (const std::exception &e) {
+        res.status = 500;
         res.set_content(std::string("Error: ") + e.what(), "text/plain");
     }
 }
@@ -58,6 +76,7 @@ void handle_read(const httplib::Request &req, httplib::Response &res) {
         //reading from cache
         std::string cache_value = cache.read_key(key);
         if (!cache_value.empty()) {
+            res.status = 200;
             res.set_content(cache_value, "text/plain");
             return;
         }
@@ -67,21 +86,58 @@ void handle_read(const httplib::Request &req, httplib::Response &res) {
         pqxx::result r = txn.exec_params("SELECT value FROM kv_data WHERE key=$1", key);
 
         if (r.empty()) {
+            res.status = 404;
             res.set_content("Key not Found", "text/plain");
         } else {
             std::string db_value = r[0][0].c_str();
             cache.create_key(key, db_value);
+            res.status = 200;
             res.set_content(db_value, "text/plain");
         }
     } catch (const std::exception &e) {
+        res.status = 500;
         res.set_content(std::string("Error: ") + e.what(), "text/plain");
     }
+}
+
+//handling update
+void handle_update(const httplib::Request &req, httplib::Response &res){
+    std::string key = req.matches[1];
+    std::string value  = req.body;
+
+    try
+    {
+        pqxx::connection conn = get_connection();
+        pqxx::work txn(conn);
+
+        pqxx::result r = txn.exec_params("UPDATE kv_data SET value=$1 WHERE key=$2 RETURNING key",value,key);
+        if(r.empty()){
+            res.status = 404;
+            res.set_content("Key not found in DB","text/plain");
+            return;
+        }
+        txn.commit();
+
+        if(cache.update_key(key,value) == -1){
+            cache.create_key(key,value);
+        }
+
+        res.status = 200;
+        res.set_content("Updated Successfully","text/plain");
+    }
+    catch(const std::exception& e)
+    {
+        res.status = 500;
+        res.set_content(std::string("Error: ") + e.what(),"text/plain");
+    }
+    
 }
 
 int main() {
     httplib::Server server;
 
     server.Post("/kvstore/create", handle_create);
+    server.Put(R"(/kvstore/(\w+))",handle_update);
     server.Delete(R"(/kvstore/(\w+))", handle_delete);
     server.Get(R"(/kvstore/(\w+))", handle_read);
 

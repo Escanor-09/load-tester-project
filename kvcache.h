@@ -50,6 +50,19 @@ class LRUCache{
             return 0;
         }
 
+        int update_key(const std::string &key, const std::string &value){
+            std::lock_guard<std::mutex> lock(mtx);
+            auto find_key = cache_map.find(key);
+
+            if(find_key != cache_map.end()){
+                find_key->second->second = value;
+                cache_list.splice(cache_list.begin(),cache_list,find_key->second);
+                return 0;
+            }else{
+                return -1;
+            }
+        }
+
         //delete key
         int delete_key(const std::string &key){
             std::lock_guard<std::mutex> lock(mtx);

@@ -55,8 +55,18 @@ int main() {
             else
                 std::cout << "Request failed\n";
 
+        }else if(cmd == "update"){
+            if(key.empty() || value.empty()){
+                std::cout << "Usage: update <key> <value>\n";
+                continue;
+            }
+            auto res = client.Put(("/kvstore/" + key).c_str(),value,"text/plain");
+            if(res)
+                std::cout << "Server replied: " << res->body << std::endl;
+            else 
+                std::cout << "Request failed\n";
         } else {
-            std::cout << "Unknown command. Use create/read/delete/exit.\n";
+            std::cout << "Unknown command. Use create/read/update/delete/exit.\n";
         }
     }
 
