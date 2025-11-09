@@ -35,7 +35,7 @@ void handle_create(const httplib::Request &req, httplib::Response &res) {
         cache.create_key(key,value);
 
         res.status = 201;
-        res.set_content("Created Succesfully","text/plain");
+        res.set_content("Created Succesfully\n","text/plain");
 
     } catch (const std::exception &e) {
         res.status = 500;
@@ -54,14 +54,14 @@ void handle_delete(const httplib::Request &req, httplib::Response &res) {
         pqxx::result r = txn.exec_params("DELETE FROM kv_data WHERE key=$1 RETURNING key", key);
         if(r.empty()){
             res.status = 404;
-            res.set_content("Key Not Found","text/plain");
+            res.set_content("Key Not Found\n","text/plain");
             return;
         }
         txn.commit();
 
         cache.delete_key(key);
         res.status = 200;
-        res.set_content("Deleted Successfully", "text/plain");
+        res.set_content("Deleted Successfully\n", "text/plain");
     } catch (const std::exception &e) {
         res.status = 500;
         res.set_content(std::string("Error: ") + e.what(), "text/plain");
@@ -87,7 +87,7 @@ void handle_read(const httplib::Request &req, httplib::Response &res) {
 
         if (r.empty()) {
             res.status = 404;
-            res.set_content("Key not Found", "text/plain");
+            res.set_content("Key not Found\n", "text/plain");
         } else {
             std::string db_value = r[0][0].c_str();
             cache.create_key(key, db_value);
@@ -113,7 +113,7 @@ void handle_update(const httplib::Request &req, httplib::Response &res){
         pqxx::result r = txn.exec_params("UPDATE kv_data SET value=$1 WHERE key=$2 RETURNING key",value,key);
         if(r.empty()){
             res.status = 404;
-            res.set_content("Key not found in DB","text/plain");
+            res.set_content("Key not found in DB\n","text/plain");
             return;
         }
         txn.commit();
@@ -123,7 +123,7 @@ void handle_update(const httplib::Request &req, httplib::Response &res){
         }
 
         res.status = 200;
-        res.set_content("Updated Successfully","text/plain");
+        res.set_content("Updated Successfully\n","text/plain");
     }
     catch(const std::exception& e)
     {
