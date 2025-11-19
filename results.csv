@@ -1,0 +1,6 @@
+threads,workload,total_requests,total_success,total_fail,throughput,avg_latency_ms
+10,put_all,11515,11515,0,95.9583,104.248
+10,get_all,20311,20311,0,169.258,59.0944
+10,put_all,21262365,0,21262365,0,inf
+10,put_all,11656,11656,0,97.1333,102.98
+20,put_all,21753,21753,0,181.275,110.385
