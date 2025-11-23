@@ -141,7 +141,7 @@ int main() {
     server.Delete(R"(/kvstore/(\w+))", handle_delete);
     server.Get(R"(/kvstore/(\w+))", handle_read);
 
-    const int num_threads = 100;
+    const int num_threads = 300;
     server.new_task_queue = [num_threads]{return new httplib::ThreadPool(num_threads);};
 
     std::cout << "Server is listening on Port 8080\n";
