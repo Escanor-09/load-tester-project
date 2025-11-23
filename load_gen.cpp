@@ -120,7 +120,7 @@ int main(){
     cin>>threads;
     cout<<"Enter the duration (seconds): ";
     cin>>duration;
-    cout<<"Enter workload type (put_all/get_all): ";
+    cout<<"Enter workload type (put_all/get_all/get_popular/get_put): ";
     cin>>workload_str;
 
     Workload type;
@@ -184,13 +184,13 @@ int main(){
 
     double throughput = (double) total_ok / duration;
 
-    cout << "\n================RESULTS======================\n";
+    cout << "\nRESULTS\n";
     cout<<"Total Requests: "<<total_req <<endl;
     cout<<"Successful Requests: "<<total_ok<<endl;
     cout<<"Failed Requests:" << (total_req - total_ok) <<endl;
     cout<<"Average Troughput: "<< throughput <<"req/sec\n";
     cout<<"Average Response Time: "<<avg_latency_ms<<"ms\n";
-    cout<<"====================================================\n";
+    cout<<"\n";
 
     ofstream csv("results.csv", ios::app);
 
