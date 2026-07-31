@@ -56,12 +56,12 @@ HttpResponseParseResult ProxySession::readBackendResponse()
             return parseResult;
         }
 
-        std::cout << "Waiting backend recv.." << std::endl;
+        // std::cout << "Waiting backend recv.." << std::endl;
 
         // Status is INCOMPLETE: Read more bytes from backend socket
         ssize_t bytesRead = recv(backendSocket_, rawBuffer, sizeof(rawBuffer), 0);
 
-        std::cout << "Received " << bytesRead << " bytes\n";
+        // std::cout << "Received " << bytesRead << " bytes\n";
         if (bytesRead <= 0)
         {
             parseResult.status = HttpParseStatus::ERROR;
@@ -70,7 +70,7 @@ HttpResponseParseResult ProxySession::readBackendResponse()
         }
 
         responseBuffer.append(rawBuffer, bytesRead);
-        std::cout << responseBuffer << std::endl;
+        // std::cout << responseBuffer << std::endl;
     }
 }
 
@@ -88,15 +88,15 @@ void ProxySession::forwardTraffic(int clientSocket)
             break; // Client disconnected or timed out
 
         clientBuffer.append(rawBuffer, bytesRead);
-        std::cout << "Received from client:\n";
-        std::cout << clientBuffer << "\n";
+        // std::cout << "Received from client:\n";
+        // std::cout << clientBuffer << "\n";
 
         // Inner Loop: Parse and process all complete requests in clientBuffer
         while (!clientBuffer.empty())
         {
             HttpParseResult result = parseHTTPRequest(clientBuffer);
-            std::cout << "Parse Status: " << static_cast<int>(result.status) << "\n";
-            std::cout << "ClientBuffer size " << clientBuffer.size() << "\n";
+            // std::cout << "Parse Status: " << static_cast<int>(result.status) << "\n";
+            // std::cout << "ClientBuffer size " << clientBuffer.size() << "\n";
 
             if (result.status == HttpParseStatus::INCOMPLETE)
                 break;
@@ -142,14 +142,14 @@ void ProxySession::forwardTraffic(int clientSocket)
 
                 for (const auto &backend : candidates)
                 {
-                    std::cout << "[Router] Replicating Write for key: " << key << " -> Backend Port " << backend.port
-                              << "\n";
+                    // std::cout << "[Router] Replicating Write for key: " << key << " -> Backend Port " << backend.port
+                    //           << "\n";
                     if (connectToBackend(backend))
                     {
                         sendAll(backendSocket_, requestPayload.c_str(), requestPayload.size());
 
                         HttpResponseParseResult respResult = readBackendResponse();
-                        std::cout << "Returned from readBackendResponse()\n";
+                        // std::cout << "Returned from readBackendResponse()\n";
 
                         if (respResult.status == HttpParseStatus::COMPLETE)
                         {
@@ -171,11 +171,11 @@ void ProxySession::forwardTraffic(int clientSocket)
 
                 if (atLeastOneSuccess)
                 {
-                    std::cout << "Sending response back to the client\n";
-                    std::cout << "ClientSocket = " << clientSocket << "\n";
-                    std::cout << "Response : " << primaryResponse << "\n";
+                    // std::cout << "Sending response back to the client\n";
+                    // std::cout << "ClientSocket = " << clientSocket << "\n";
+                    // std::cout << "Response : " << primaryResponse << "\n";
                     sendAll(clientSocket, primaryResponse.c_str(), primaryResponse.size());
-                    std::cout << "Response sent to the client";
+                    // std::cout << "Response sent to the client";
                 }
                 else
                 {
@@ -190,12 +190,12 @@ void ProxySession::forwardTraffic(int clientSocket)
                 for (const auto &backend : candidates)
                 {
 
-                    std::cout << "[Router] Attempting Key: " << key << " -> Backend Port " << backend.port << "\n";
+                    // std::cout << "[Router] Attempting Key: " << key << " -> Backend Port " << backend.port << "\n";
 
                     if (connectToBackend(backend))
                     {
                         sendAll(backendSocket_, request.rawRequest.c_str(), request.rawRequest.size());
-                        std::cout << "Request forwarded to backend\n";
+                        // std::cout << "Request forwarded to backend\n";
                         HttpResponseParseResult respResult = readBackendResponse();
 
                         if (respResult.status == HttpParseStatus::COMPLETE)

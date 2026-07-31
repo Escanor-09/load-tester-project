@@ -1,6 +1,7 @@
 #include "httplib.h"
 #include "kvcache.h"
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include <pqxx/pqxx>
 
@@ -93,10 +94,26 @@ void handle_read(const httplib::Request &req, httplib::Response &res)
 
     try
     {
+
         std::string cache_value = cache.read_key(key);
+
+        std::ofstream log_file("server_audit.log", std::ios_base::app);
+        if (log_file.is_open())
+        {
+            std::string dummy_log_data(50000, 'X');
+            log_file << "AUDIT LOG - Key Requested: " << key << " " << dummy_log_data << "\n";
+            log_file.flush();
+        }
+
         if (!cache_value.empty())
         {
             res.status = 200;
+
+            // volatile uint32_t dummy_hash = 0;
+            // for (int i = 0; i < 5000000; i++)
+            // {
+            //     dummy_hash += (i ^ 0x55AA55AA) + (i % 256);
+            // }
             res.set_content(cache_value, "text/plain");
             return;
         }

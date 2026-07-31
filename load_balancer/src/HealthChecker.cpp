@@ -32,6 +32,7 @@ bool HealthChecker::pingBackend(const Backend &backend)
 
 void HealthChecker::run()
 {
+    std::this_thread::sleep_for(std::chrono::seconds(5));
     while (running_)
     {
         // Fetch real-time states from the router map

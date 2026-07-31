@@ -17,21 +17,21 @@ std::vector<std::string> RecoveryManager::fetchAllKeysFromNode(const Backend &ba
 
     if (!res)
     {
-        std::cout << "[FETCH] Request to port "
-                  << backend.port
-                  << " failed\n";
+        // std::cout << "[FETCH] Request to port "
+        //           << backend.port
+        //           << " failed\n";
     }
     else
     {
-        std::cout << "[FETCH] Port "
-                  << backend.port
-                  << " Status: "
-                  << res->status
-                  << "\n";
+        // std::cout << "[FETCH] Port "
+        //           << backend.port
+        //           << " Status: "
+        //           << res->status
+        //           << "\n";
 
-        std::cout << "[FETCH] Body:\n"
-                  << res->body
-                  << "\n";
+        // std::cout << "[FETCH] Body:\n"
+        //           << res->body
+        //           << "\n";
 
         if (res->status == 200)
         {
@@ -47,9 +47,9 @@ std::vector<std::string> RecoveryManager::fetchAllKeysFromNode(const Backend &ba
         }
     }
 
-    std::cout << "[FETCH] Parsed " << keys.size()
-              << " keys from port "
-              << backend.port << "\n";
+    // std::cout << "[FETCH] Parsed " << keys.size()
+    //           << " keys from port "
+    //           << backend.port << "\n";
     return keys;
 }
 
@@ -83,16 +83,16 @@ bool RecoveryManager::writeValueToRecoveredNode(const Backend &target, const std
 
 void RecoveryManager::recover(const Backend &recovered_backend)
 {
-    std::cout << "\n========================================\n";
-    std::cout << "Backend port " << recovered_backend.port << " is UP\n";
-    std::cout << "Recovery started\n";
+    // std::cout << "\n========================================\n";
+    // std::cout << "Backend port " << recovered_backend.port << " is UP\n";
+    // std::cout << "Recovery started\n";
 
     // FIX: Scan all online nodes to build a comprehensive deduplicated keyspace map
     std::vector<Backend> active_backends = router_.getOnlineBackends();
     std::set<std::string> global_keyspace;
 
-    std::cout << "Recovered node: " << recovered_backend.port << "\n";
-    std::cout << "Online nodes:\n";
+    // std::cout << "Recovered node: " << recovered_backend.port << "\n";
+    // std::cout << "Online nodes:\n";
 
     for (const auto &node : active_backends)
     {
@@ -101,26 +101,26 @@ void RecoveryManager::recover(const Backend &recovered_backend)
         if (node.port == recovered_backend.port)
             continue;
 
-        std::cout << "Fetching keys from node " << node.port << "\n";
+        // std::cout << "Fetching keys from node " << node.port << "\n";
 
         std::vector<std::string> node_keys = fetchAllKeysFromNode(node);
 
-        std::cout << "Received " << node_keys.size() << " keys\n";
+        // std::cout << "Received " << node_keys.size() << " keys\n";
 
         for (const auto &k : node_keys)
         {
-            std::cout << "    " << k << "\n";
+            // std::cout << "    " << k << "\n";
             global_keyspace.insert(k);
         }
     }
 
-    std::cout << "Global keyspace size = " << global_keyspace.size() << "\n";
+    // std::cout << "Global keyspace size = " << global_keyspace.size() << "\n";
 
     if (global_keyspace.empty())
     {
-        std::cout << "No keys found across active online nodes. Recovery skipped.\n";
-        std::cout << "Recovery finished\n";
-        std::cout << "========================================\n\n";
+        // std::cout << "No keys found across active online nodes. Recovery skipped.\n";
+        // std::cout << "Recovery finished\n";
+        // std::cout << "========================================\n\n";
         return;
     }
 
@@ -143,7 +143,7 @@ void RecoveryManager::recover(const Backend &recovered_backend)
             continue;
         }
 
-        std::cout << "Copying " << key << "\n";
+        // std::cout << "Copying " << key << "\n";
 
         std::string source_value = "";
         for (const auto &replica : target_replicas)
@@ -168,6 +168,6 @@ void RecoveryManager::recover(const Backend &recovered_backend)
         }
     }
 
-    std::cout << "Recovery finished\n";
-    std::cout << "========================================\n\n";
+    // std::cout << "Recovery finished\n";
+    // std::cout << "========================================\n\n";
 }

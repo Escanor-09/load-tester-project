@@ -102,6 +102,33 @@ A production-inspired distributed key-value store built from scratch in C++, fea
 
 ---
 
+## Architectural Assumptions & Known Tradeoffs
+
+### Single Write Path (by design)
+All client writes flow exclusively through the load balancer, which sequentially replicates each write to the appropriate replica backends before acknowledging the client. This **single-writer model** is a deliberate architectural choice that provides an important guarantee: since no two writers can concurrently produce conflicting versions of the same key, **conflict resolution mechanisms (e.g. vector clocks, version timestamps) are not required** under normal operation.
+
+This simplification is valid as long as the load balancer is the sole entry point for writes. It would break down if the system were extended to support:
+- **Multiple active load balancers** accepting writes concurrently
+- **Direct client-to-node writes** bypassing the LB
+- **Partition-tolerant multi-master replication**, where nodes must accept writes independently during a network split
+
+In those scenarios, concurrent divergent writes to the same key become possible and a versioning scheme (Lamport timestamps, vector clocks, or CRDTs) would be necessary for correct reconciliation.
+
+### Load Balancer as Single Point of Failure
+The single-writer guarantee comes at the cost of availability: the load balancer itself is a **SPOF**. If it goes down, the entire system becomes unavailable for writes despite the backend nodes remaining healthy.
+
+Standard mitigations in production systems:
+- **Active-passive LB pair** with a shared Virtual IP (VIP); the passive node takes over via a heartbeat protocol (e.g. Keepalived/VRRP) on primary failure
+- **DNS-based failover** routing traffic to a standby LB instance
+- **Gossip-based coordination** (e.g. Serf, Consul) eliminating the need for a central LB entirely
+
+Addressing the SPOF is the natural next step in evolving this architecture toward full fault tolerance.
+
+### Recovery Scalability
+The current recovery process scans the entire keyspace across all online peers to identify keys a rejoining node should own. This is correct but O(total keys) in network round trips. At scale, the standard approach is a **Merkle tree** maintained per node: comparing tree roots identifies divergent subtrees without enumerating individual keys, reducing recovery bandwidth dramatically. This is the approach used by Cassandra and DynamoDB.
+
+---
+
 ## Building & Running
 
 ### Prerequisites

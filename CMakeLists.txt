@@ -31,6 +31,10 @@ target_link_libraries(kvclient
     pthread
 )
 
+add_executable(load_gen
+    load_gen.cpp
+)
+
 add_Executable(load_balancer
     load_balancer/src/main.cpp
     load_balancer/src/LoadBalancer.cpp
