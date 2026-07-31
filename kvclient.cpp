@@ -2,11 +2,14 @@
 #include <iostream>
 #include <sstream>
 
-int main() {
-    httplib::Client client("localhost", 8080); // connect to server
+int main()
+{
+    httplib::Client client("localhost", 8080); // connect to load balancer
+    client.set_keep_alive(true);
     std::string user_input;
 
-    while (true) {
+    while (true)
+    {
         std::cout << ">> ";
         std::getline(std::cin, user_input);
 
@@ -17,10 +20,13 @@ int main() {
         std::string cmd, key, value;
         input >> cmd >> key;
         std::getline(input, value);
-        if (!value.empty() && value[0] == ' ') value.erase(0, 1); 
+        if (!value.empty() && value[0] == ' ')
+            value.erase(0, 1);
 
-        if (cmd == "create") {
-            if (key.empty() || value.empty()) {
+        if (cmd == "create")
+        {
+            if (key.empty() || value.empty())
+            {
                 std::cout << "Usage: create <key> <value>\n";
                 continue;
             }
@@ -30,9 +36,11 @@ int main() {
                 std::cout << "Server replied: " << res->body << std::endl;
             else
                 std::cout << "Request failed\n";
-
-        } else if (cmd == "delete") {
-            if (key.empty()) {
+        }
+        else if (cmd == "delete")
+        {
+            if (key.empty())
+            {
                 std::cout << "Usage: delete <key>\n";
                 continue;
             }
@@ -42,9 +50,11 @@ int main() {
                 std::cout << "Server replied: " << res->body << std::endl;
             else
                 std::cout << "Request failed\n";
-
-        } else if (cmd == "read") {
-            if (key.empty()) {
+        }
+        else if (cmd == "read")
+        {
+            if (key.empty())
+            {
                 std::cout << "Usage: read <key>\n";
                 continue;
             }
@@ -54,18 +64,22 @@ int main() {
                 std::cout << "Server replied: " << res->body << std::endl;
             else
                 std::cout << "Request failed\n";
-
-        }else if(cmd == "update"){
-            if(key.empty() || value.empty()){
+        }
+        else if (cmd == "update")
+        {
+            if (key.empty() || value.empty())
+            {
                 std::cout << "Usage: update <key> <value>\n";
                 continue;
             }
-            auto res = client.Put(("/kvstore/" + key).c_str(),value,"text/plain");
-            if(res)
+            auto res = client.Put(("/kvstore/" + key).c_str(), value, "text/plain");
+            if (res)
                 std::cout << "Server replied: " << res->body << std::endl;
-            else 
+            else
                 std::cout << "Request failed\n";
-        } else {
+        }
+        else
+        {
             std::cout << "Unknown command. Use create/read/update/delete/exit.\n";
         }
     }
