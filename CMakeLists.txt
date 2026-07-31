@@ -35,7 +35,7 @@ add_Executable(load_balancer
     load_balancer/src/main.cpp
     load_balancer/src/LoadBalancer.cpp
     load_balancer/src/ProxySession.cpp
-    load_balancer/src/http/HttpHelper.cpp
+    load_balancer/src/HttpHelper.cpp
     load_balancer/src/Router.cpp
     load_balancer/src/HashRing.cpp
     load_balancer/src/HealthChecker.cpp
