@@ -1,72 +1,198 @@
-# CS744 Project: C++ RESTful Key-Value Store
+# Distributed Key-Value Store with Consistent-Hashing Load Balancer
 
-This project is a high-performance, REST-based key-value store server built in C++. It features a three-tier architecture with an HTTP API layer, a thread-safe in-memory LRU cache, and a persistent PostgreSQL database with PgBouncer for connection pooling.
-
-## Architecture
-
-The system follows a three-tier design to ensure fast reads via caching and reliable persistence via PostgreSQL.
+A production-inspired distributed key-value store built from scratch in C++, featuring a custom TCP reverse proxy with consistent hashing, replication, health monitoring, and automatic node recovery — all without any distributed systems framework.
 
 ---
 
-## Core Components
+## Architecture Overview
 
-The architecture is broken down into the following layers:
-
-### 1. HTTP Layer (API Server)
-* **Description:** Handles all incoming client requests and HTTP routing.
-* **Library:** Built using the C++ [**httplib**](https://github.com/yhirose/cpp-httplib) library to expose REST API endpoints.
-* **Concurrency:** Uses `httplib::ThreadPool` with 20 worker threads for concurrent request handling.
-* **Routing:** Routes each endpoint to its specific handler function (`handle_create`, `handle_read`, `handle_update`, `handle_delete`).
-
-### 2. Cache Layer (In-Memory LRU)
-* **Description:** Speeds up read operations by storing frequently accessed data in memory.
-* **Implementation:** A custom LRU (Least Recently Used) cache built using `std::list` and `std::unordered_map`.
-* **Thread Safety:** All cache operations (`read_key`, `create_key`, `delete_key`, `update_key`) are thread-safe (assuming `kvcache.h` implements this, e.g., with `std::mutex`).
-* **Eviction Policy:** When the cache exceeds its capacity, the least recently used entry is evicted.
-
-### 3. PgBouncer (Connection Pool)
-* **Description:** Manages a pool of connections to the PostgreSQL database.
-* **Purpose:** Efficiently reuses connections from multiple clients, reducing the overhead of establishing new connections for every request and improving performance. The server connects to port 6432 to interface with the pooler.
-
-### 4. Database Layer (Persistent Storage)
-* **Description:** Provides durable storage and consistency for all key-value pairs.
-* **Database:** PostgreSQL.
-* **Library:** Uses the [**pqxx**](https://github.com/libpqxx/libpqxx) library for C++ to interface with PostgreSQL.
-* **Transactions:** All database operations are wrapped in transactional units (`pqxx::work`) to ensure atomic operations.
-
----
-
-## API Endpoints
-
-The server exposes the following RESTful endpoints:
-
-* `POST /kvstore/create`
-    * **Body:** `"key value"` (space-separated string)
-    * **Action:** Adds a new key-value pair.
-    * **Workflow:** Checks if the key already exists (returns `409 Conflict` if true). Otherwise, the pair is first written to the PostgreSQL database. If successful, it is then added to the in-memory cache.
-
-* `GET /kvstore/<key>`
-    * **Action:** Reads the value associated with a given `<key>`.
-    * **Workflow:** The server first attempts to read the value from the cache. If a cache hit occurs, it returns the value. If a cache miss occurs, it fetches the value from the database. If found, it updates the cache and returns the value (returns `404 Not Found` if not in DB).
-
-* `PUT /kvstore/<key>`
-    * **Body:** `"new_value"`
-    * **Action:** Updates the value for an existing key.
-    * **Workflow:** The server updates the value in the database. If the key is not found, it returns `404 Not Found`. If the DB update is successful, it updates the corresponding entry in the cache (or creates it if it wasn't already in the cache).
-
-* `DELETE /kvstore/<key>`
-    * **Action:** Removes a key-value pair from the system.
-    * **Workflow:** The entry is first deleted from the database. If the key is not found, it returns `404 Not Found`. If the DB deletion is successful, the key is also evicted from the cache.
+```
+┌────────────┐        ┌──────────────────────────────────────┐
+│  kvclient  │──HTTP──▶         Load Balancer (:8080)         │
+└────────────┘        │                                        │
+                      │  ┌─────────┐  ┌──────────────────┐   │
+                      │  │ Router  │  │  HealthChecker   │   │
+                      │  │(HashRing│  │  (background     │   │
+                      │  │ + state)│  │   thread, 3s)    │   │
+                      │  └────┬────┘  └────────┬─────────┘   │
+                      │       │                │              │
+                      │  ┌────▼────────────────▼──────────┐  │
+                      │  │        ProxySession             │  │
+                      │  │  (per-client worker thread)     │  │
+                      │  └────────────────────────────────┘  │
+                      └──────────────────────────────────────┘
+                               │               │
+               ┌───────────────┼───────────────┐
+               ▼               ▼               ▼
+        KVServer(:9001)  KVServer(:9002)  KVServer(:9003)
+        PostgreSQL DB    PostgreSQL DB    PostgreSQL DB
+        LRU Cache        LRU Cache        LRU Cache
+```
 
 ---
 
-## How to Build and Run
+## Components
+
+### Load Balancer (`LoadBalancer`, `main.cpp`)
+- Custom TCP server built on raw POSIX sockets (`socket`, `bind`, `listen`, `accept`)
+- Spawns a detached `std::thread` per client connection for concurrent request handling
+- Bootstraps the `Router`, `RecoveryManager`, and `HealthChecker` and wires their lifetimes together
+- Configures `SO_REUSEADDR` for zero-downtime restarts
+
+### Consistent Hash Ring (`HashRing`)
+- Implements a **virtual-node consistent hash ring** using `std::map<uint32_t, Backend>` as the sorted ring structure
+- Each backend is mapped to **50 virtual nodes** (configurable) to ensure balanced key distribution even with few physical nodes
+- `add_node` / `remove_node` insert/erase all virtual node entries; ring lookup uses `lower_bound` for O(log n) successor search
+- `getNodes(key, replication_factor)` returns N distinct physical backends clockwise from the key's hash position — used for both replication targeting and recovery ownership checks
+- Thread-safe via `std::mutex`
+
+### Router (`Router`)
+- Owns the `HashRing` and a `backends_` map keyed by port, tracking each node's `BackendStatus` (`UP` / `RECOVERING` / `DOWN`)
+- **Read path:** only routes to `UP` backends — prevents stale reads from nodes still catching up
+- **Write path:** routes to both `UP` and `RECOVERING` backends — ensures a recovering node receives live writes immediately on rejoining the ring
+- `markBackendDown` removes the node from the hash ring instantly, so subsequent key lookups naturally route to its successor
+- `markBackendRecovering` re-adds the node to the ring before data sync begins, accepting new writes while historical data is being replayed
+
+### Proxy Session (`ProxySession`)
+- Implements the full HTTP/1.1 proxying loop: reads from the client socket, invokes `parseHTTPRequest`, routes via `Router`, forwards to backend(s), reads the backend response with `readBackendResponse`, and relays it back
+- **Write replication:** for `POST`/`PUT`/`DELETE`, connects sequentially to all replica backends; injects `X-Internal-Replication: true` header on `PUT` so backend servers can upsert instead of update-only
+- **Read failover:** tries replica backends in ring order; on any failure, marks the backend DOWN and tries the next successor
+- Handles persistent client connections (outer recv loop) with pipelined request parsing (inner parse loop consuming `clientBuffer` by `result.consumed` bytes per request)
+
+### HTTP Parser (`HttpHelper`, `HttpParser.h`)
+- Hand-written incremental HTTP/1.1 request and response parser — no external HTTP library
+- Request parser: extracts method, path, version; reads `Content-Length` via `std::from_chars` for zero-copy integer parsing; returns `INCOMPLETE` until the full body has arrived, enabling correct handling of pipelined and partial reads
+- Response parser: handles status line, headers map, and body; falls back to consuming remaining buffer bytes when `Content-Length` is absent
+
+### Health Checker (`HealthChecker`)
+- Runs a dedicated `std::thread` pinging every backend's `/health` endpoint every **3 seconds** using `cpp-httplib`
+- Drives the `DOWN → RECOVERING → UP` state machine: on revival, triggers `RecoveryManager::recover` synchronously before promoting the node to `UP`, preventing dirty reads
+- Uses `std::atomic<bool> running_` for clean thread shutdown
+
+### Recovery Manager (`RecoveryManager`)
+- On node revival, scans **all online peers** to build a global deduplicated keyspace (`std::set<std::string>`)
+- For each key in the global keyspace, recomputes its replica set via `router_.getBackendsForKey`; only syncs keys the recovered node is supposed to own
+- Fetches values from a live peer replica via `GET /kvstore/<key>` and pushes them to the recovered node via `POST /kvstore/sync/<key>` — a safe upsert route that never overwrites a newer value
+
+### KV Server (`kvserver`)
+- HTTP REST server built on `cpp-httplib` with a **300-thread pool**
+- **API:** `POST /kvstore/create`, `GET /kvstore/<key>`, `PUT /kvstore/<key>`, `DELETE /kvstore/<key>`, `GET /kvstore/allkeys`, `POST /kvstore/sync/<key>`, `GET /health`
+- Persistence via **PostgreSQL** (libpqxx); each server instance connects to its own database (`kvstore_<port>`) for isolation
+- **LRU Cache** sits in front of every read: cache hit returns immediately without a DB round-trip; writes invalidate the cache entry; implemented with `std::list` + `std::unordered_map` for O(1) get/put/evict, protected by `std::mutex`
+- Replication-aware `PUT`: detects `X-Internal-Replication` header and performs an `INSERT ... ON CONFLICT DO UPDATE` (upsert) instead of a plain `UPDATE`, so a recovering node can accept writes for keys it doesn't yet have
+
+### Load Generator (`load_gen`)
+- Multi-threaded benchmarking tool; configurable thread count, duration, and workload type
+- Workload modes: `put_all` (pure write), `get_all` (pure read), `get_popular` (hot-key / cache-hit stress), `get_put` (50/50 mixed)
+- Reports throughput (req/s) and average latency (ms); appends results to `results.csv` for offline analysis
+
+---
+
+## Key Design Decisions
+
+| Decision | Rationale |
+|---|---|
+| Virtual nodes on hash ring | Prevents hot spots when node count is small; each physical node covers multiple non-contiguous ring segments |
+| Separate read/write routing with status gating | Avoids stale reads from a recovering node while still funneling live writes to it immediately |
+| `X-Internal-Replication` header | Lets a single `PUT` endpoint behave correctly for both normal client updates (key must exist) and replication upserts (key may not exist yet) |
+| Recovery via `/kvstore/sync` | Idempotent sync route decoupled from the client-facing `PUT`; safe to replay without risk of overwriting newer client data |
+| Hand-written HTTP parser | Avoids a full HTTP library dependency in the proxy hot path; incremental design handles partial TCP reads and pipelined requests correctly |
+| Per-client threads + detach | Simple concurrency model; each `ProxySession` is fully independent with its own buffer and backend socket state |
+| LRU cache per server | Absorbs repeated reads for hot keys without hitting PostgreSQL; invalidated on write to prevent stale cache serving |
+
+---
+
+## Building & Running
 
 ### Prerequisites
-* A C++ compiler (e.g., g++, clang)
-* CMake (v3.10 or higher)
-* PostgreSQL
-* PgBouncer
-* `libpqxx` (PostgreSQL C++ API)
-* `httplib.h` (included)
-* `kvcache.h` (your custom cache implementation)
+- C++17 compiler (g++ / clang++)
+- PostgreSQL + libpqxx
+- [cpp-httplib](https://github.com/yhirose/cpp-httplib) (header-only, place `httplib.h` in project root)
+
+### Database Setup
+```bash
+# Create one database per server instance
+createdb kvstore_9001
+createdb kvstore_9002
+createdb kvstore_9003
+
+# In each database
+psql -d kvstore_900X -c "
+  CREATE TABLE kv_data (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );"
+```
+
+### Compile
+```bash
+# KV Servers
+g++ -std=c++17 -O2 -o kvserver kvserver.cpp -lpqxx -lpq -lpthread
+
+# Load Balancer
+g++ -std=c++17 -O2 -o loadbalancer \
+    main.cpp LoadBalancer.cpp Router.cpp HashRing.cpp \
+    ProxySession.cpp HttpHelper.cpp HealthChecker.cpp RecoveryManager.cpp \
+    -lpthread
+
+# Load Generator
+g++ -std=c++17 -O2 -o load_gen load_gen.cpp -lpthread
+
+# Client
+g++ -std=c++17 -O2 -o kvclient kvclient.cpp
+```
+
+### Run
+```bash
+# Start three server instances
+./kvserver 9001 &
+./kvserver 9002 &
+./kvserver 9003 &
+
+# Start load balancer (connects to all three)
+./loadbalancer
+
+# Interact via client
+./kvclient
+>> create foo bar
+>> read foo
+>> update foo baz
+>> delete foo
+```
+
+### Benchmarking
+```bash
+./load_gen
+# Enter threads, duration, workload type
+# Results appended to results.csv
+```
+
+---
+
+## Fault Tolerance Walkthrough
+
+1. **Node goes down** — HealthChecker detects missed `/health` ping → calls `router_.markBackendDown(port)` → node removed from hash ring → all subsequent key lookups route to ring successors automatically
+2. **Node comes back** — HealthChecker detects successful ping → `markBackendRecovering` re-adds node to ring (receives live writes) → `RecoveryManager::recover` replays all owned keys from peers → `markBackendUp` opens node for reads
+3. **Write during recovery** — write is replicated to the recovering node via the upsert path; no key is lost
+4. **All replicas for a key are down** — ProxySession returns `HTTP 503` to the client
+
+---
+
+## Project Structure
+
+```
+├── main.cpp               # Entry point
+├── LoadBalancer.{h,cpp}   # TCP server, thread spawning
+├── Router.{h,cpp}         # Key routing, backend state management
+├── HashRing.{h,cpp}       # Consistent hash ring with virtual nodes
+├── ProxySession.{h,cpp}   # Per-client HTTP proxy and replication logic
+├── HttpParser.h           # HTTP request/response structs
+├── HttpHelper.cpp         # Incremental HTTP/1.1 parser
+├── HealthChecker.{h,cpp}  # Background health ping loop
+├── RecoveryManager.{h,cpp}# Node recovery and key sync
+├── Backend.h              # Backend struct and status enum
+├── kvserver.cpp           # KV HTTP server (cpp-httplib + libpqxx)
+├── kvcache.h              # Thread-safe LRU cache
+├── kvclient.cpp           # Interactive CLI client
+└── load_gen.cpp           # Multi-threaded load generator
+```
