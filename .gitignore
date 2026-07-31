@@ -12,7 +12,7 @@ compile_commands.json
 kvserver
 kvclient
 load_gen
-load_balancer
+
 
 # Object files
 *.o
